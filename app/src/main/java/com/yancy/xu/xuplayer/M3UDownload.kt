@@ -16,12 +16,11 @@ import org.json.JSONObject
  * @author: XuYanjun
  */
 object M3UDownload {
-//    private const val url = "https://iptv-org.github.io/iptv/languages/zho.m3u"
-    private const val url = "https://iptv-org.github.io/iptv/countries/cn.m3u"
+
 
     private val okHttpClient by lazy { OkHttpClient() }
 
-    suspend fun download(targetPath: String): Result<File> = withContext(Dispatchers.IO) {
+    suspend fun download(url:String, targetPath: String): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
             val request = Request.Builder().url(url).build()
             okHttpClient.newCall(request).execute().use { response ->
@@ -41,31 +40,10 @@ object M3UDownload {
         }
     }
 
-    fun m3uFileParse(file: File?): List<LiveSource> {
-        val liveMap = mutableMapOf<String, LiveSource>()
-        var tempTitle = ""
-        var tempUrl: String
-        file?.forEachLine {
-            if (it.startsWith("#EXTINF")) {
-                tempTitle = it.split(",").getOrNull(1) ?: ""
-            } else if (it.startsWith("http")) {
-                tempUrl = it
-                if (tempTitle.isNotEmpty()) {
-                    if (liveMap.containsKey(tempTitle)) {
-                        liveMap[tempTitle] = liveMap[tempTitle]!!.run {
-                            LiveSource(tempTitle, this.source.plus(tempUrl))
-                        }
-                    } else {
-                        liveMap[tempTitle] =LiveSource(tempTitle, listOf(tempUrl))
-                    }
-                }
-            }
-        }
-        return liveMap.values.toList()
-    }
 
-    fun parseFileFromAssets(context: Context,fileName:String): List<LiveSource> {
-        val list = mutableListOf<LiveSource>()
+
+    fun parseFileFromAssets(context: Context, fileName: String): Set<LiveSource> {
+        val list = mutableSetOf<LiveSource>()
         try {
             val inputStream = context.assets.open(fileName)
             val size = inputStream.available()
@@ -74,18 +52,41 @@ object M3UDownload {
             inputStream.close()
 
             val data = JSONObject(String(buffer))
-            data.keys().forEach {key->
+            data.keys().forEach { key ->
                 data.optJSONArray(key)?.run {
-                    (0 until length()).map { index->
+                    (0 until length()).map { index ->
                         this.optString(index)
                     }
                 }?.run {
-                    list.add( LiveSource(key,this))
+                    list.add(LiveSource(key, this.toSet()))
                 }
             }
         } catch (e: Exception) {
-            Log.e("Yancy","error:${e.stackTraceToString()}")
+            Log.e("Yancy", "error:${e.stackTraceToString()}")
         }
         return list
     }
+}
+
+fun File?.m3uFileParse(): Set<LiveSource> {
+    val liveMap = mutableMapOf<String, LiveSource>()
+    var tempTitle = ""
+    var tempUrl: String
+    this?.forEachLine {
+        if (it.startsWith("#EXTINF")) {
+            tempTitle = it.split(",").getOrNull(1) ?: ""
+        } else if (it.startsWith("http")) {
+            tempUrl = it
+            if (tempTitle.isNotEmpty()) {
+                if (liveMap.containsKey(tempTitle)) {
+                    liveMap[tempTitle] = liveMap[tempTitle]!!.run {
+                        LiveSource(tempTitle, this.source.plus(tempUrl))
+                    }
+                } else {
+                    liveMap[tempTitle] = LiveSource(tempTitle, setOf(tempUrl))
+                }
+            }
+        }
+    }
+    return liveMap.values.toSet()
 }
